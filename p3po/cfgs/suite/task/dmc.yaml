@@ -1,0 +1,13 @@
+defaults:
+  - _self_
+
+tasks:
+  - cartpole_swingup
+  - cheetah_run
+  - hopper_stand
+  - quadruped_run
+  - quadruped_walk
+  - reacher_easy
+  - walker_stand
+  - walker_walk
+  - walker_run
