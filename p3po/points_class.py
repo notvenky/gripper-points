@@ -8,8 +8,8 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-from utilities.correspondence import Correspondence
-from utilities.depth import Depth
+from p3po.correspondence import Correspondence
+
 
 class PointsClass():
     def __init__(self, root_dir, task_name, device, width, height, image_size_multiplier, ensemble_size, dift_layer, dift_steps, num_points, **kwargs):
@@ -47,7 +47,7 @@ class PointsClass():
         """
 
         # Set up the correspondence model and find the expert image features
-        self.correspondence_model = Correspondence(device, root_dir + "/dift/", width, height, image_size_multiplier, ensemble_size, dift_layer, dift_steps)
+        self.correspondence_model = Correspondence(device, root_dir + "/utils/dift/", width, height, image_size_multiplier, ensemble_size, dift_layer, dift_steps)
         try:
             self.initial_coords = np.array(pickle.load(open("%s/coordinates/coords/%s.pkl" % (root_dir, task_name), "rb")))
         except Exception as e:
@@ -67,19 +67,14 @@ class PointsClass():
 
         self.expert_correspondence_features = self.correspondence_model.set_expert_correspondence(expert_image)
 
-        # Set up the depth model
-        self.depth_model = Depth(root_dir + "/Depth-Anything-V2/", device)
-
         # Set up cotracker
-        sys.path.append(root_dir + "/co-tracker/")
+        sys.path.append(root_dir + "/utils/co-tracker/")
         from cotracker.predictor import CoTrackerOnlinePredictor
-        self.cotracker = CoTrackerOnlinePredictor(checkpoint=root_dir + "/co-tracker/checkpoints/scaled_online.pth", window_len=16).to(device)
-
+        self.cotracker = CoTrackerOnlinePredictor(checkpoint=root_dir + "/utils/co-tracker/checkpoints/scaled_online.pth", window_len=16).to(device)
 
         self.transform = transforms.Compose([ 
                             transforms.PILToTensor()])
         self.image_list = torch.tensor([]).to(device)
-        self.depth = np.array([])
 
         if num_points == -1:
             self.num_points = self.initial_coords.shape[0]
@@ -116,7 +111,6 @@ class PointsClass():
         """
 
         self.image_list = torch.tensor([]).to(self.device)
-        self.depth = torch.tensor([]).to(self.device)
 
     def find_semantic_similar_points(self):
         """
@@ -124,41 +118,6 @@ class PointsClass():
         """
 
         self.semantic_similar_points = self.correspondence_model.find_correspondence(self.expert_correspondence_features, self.image_list[0, -1], self.initial_coords)
-
-    def get_depth(self, last_n_frames=1):
-        """
-        Get the depth map for the current image using Depth Anything. Depth is height x width.
-
-        Parameters:
-        -----------
-        last_n_frames : int
-            The number of frames to look back in the episode
-        """
-
-        self.depth = np.zeros((last_n_frames, self.image_list.shape[3], self.image_list.shape[4]))
-        for frame_num in range(last_n_frames):
-            frame_idx = -1 * (last_n_frames - frame_num)
-            numpy_image = self.image_list[0, frame_idx].cpu().numpy().transpose(1, 2, 0) * 255
-            depth = self.depth_model.get_depth(numpy_image)
-            self.depth[frame_idx] = depth
-
-    def set_depth(self, depth):
-        """
-        If you are using ground truth depth, you can set the depth here.
-
-        Parameters:
-        -----------
-        depth : np.ndarray
-            The depth map for the current image. Depth is height x width.
-        """
-
-        if self.depth.shape[0] == 8:
-            self.depth = self.depth[1:]
-
-        while self.depth.shape[0] < 8:
-            if self.depth.shape[0] == 0:
-                self.depth = depth[None, ...].copy()
-            self.depth = np.concatenate((self.depth, depth[None, ...].copy()), axis=0)
 
     def track_points(self, is_first_step=False, one_frame=True):
         """
@@ -198,24 +157,20 @@ class PointsClass():
             The list of points for the current frame.
         """
 
-        final_points = torch.zeros((last_n_frames, self.num_points, 3))
+        final_points = torch.zeros((last_n_frames, self.num_points, 2))
         width = self.image_list.shape[4]
         height = self.image_list.shape[3]
 
         for frame_num in range(last_n_frames):
             for point in range(self.num_points):
                 frame_idx = -1 * (last_n_frames - frame_num)
-                try:
-                    depth = self.depth[frame_idx, int(self.tracks[0, frame_idx, point][1]), int(self.tracks[0, frame_idx, point][0])]
-                except:
-                    depth = 0
 
-                x = (self.tracks[0, frame_idx, point][0] - width/2) * depth
-                y = (self.tracks[0, frame_idx, point][1] - height/2) * depth
-                x /= (width/2)
-                y /= (height/2)
+                x = (self.tracks[0, frame_idx, point][0] - width / 2)
+                y = (self.tracks[0, frame_idx, point][1] - height / 2)
+                x /= (width / 2)
+                y /= (height / 2)
 
-                final_points[frame_num, point] = torch.tensor([x, y, depth])
+                final_points[frame_num, point] = torch.tensor([x, y])
 
         return final_points.reshape(last_n_frames, -1)
 

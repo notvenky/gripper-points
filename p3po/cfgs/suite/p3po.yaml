@@ -4,7 +4,7 @@ defaults:
 
 root_dir: /home/venky/P3PO
 
-task_name: "gripper2"
+task_name: "gripper_test"
 device: "cuda"
 
 width: -1
